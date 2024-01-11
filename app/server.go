@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 )
 
 func main() {
@@ -31,15 +32,32 @@ func handleConn(conn net.Conn) {
 			fmt.Println("Client is done")
 			break
 		}
-		fmt.Println("Received: ", buf[:n])
-		fmt.Println("Received: ", string(buf[:n]))
-    sendPong(conn)
+    command := strings.Split(string(buf[:n]), "\r\n")
+		fmt.Println("Received: ", command)
+		args := make([]string, 0)
+		for i := 2; i < len(command); i += 2 {
+			args = append(args, command[i])
+		}
+    fmt.Println("args", args)
+    fmt.Println("args[0]", args[0])
+    if args[0] == "ping" {
+      sendPong(conn)
+    } else if args[0] == "echo" {
+      sendEcho(conn, args[1:])
+    }
 	}
+}
+
+func sendEcho(conn net.Conn, data []string) {
+	resp := []byte("+" + strings.Join(data, ""))
+  fmt.Println("sending", string(resp))
+	_, err := conn.Write(resp)
+	must(err)
 }
 
 func sendPong(conn net.Conn) {
 	resp := []byte("+PONG\r\n")
-  _, err := conn.Write(resp)
+	_, err := conn.Write(resp)
 	must(err)
 }
 
