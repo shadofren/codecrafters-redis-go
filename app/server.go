@@ -4,8 +4,21 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
+	"time"
 )
+
+type Item struct {
+	Value  any
+	Expiry *time.Time
+}
+
+type RDB struct {
+	Data map[string]*Item
+}
+
+var database *RDB = &RDB{make(map[string]*Item)}
 
 func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
@@ -26,7 +39,6 @@ func main() {
 func handleConn(conn net.Conn) {
 	defer conn.Close()
 	buf := make([]byte, 1024)
-	data := make(map[string]any)
 	for {
 		n, err := conn.Read(buf)
 		if err != nil && err == io.EOF {
@@ -47,9 +59,9 @@ func handleConn(conn net.Conn) {
 		case "echo":
 			sendEcho(conn, args[1:])
 		case "set":
-			setValue(conn, data, args[1:])
+			setValue(conn, args[1:])
 		case "get":
-			getValue(conn, data, args[1:])
+			getValue(conn, args[1:])
 
 		default:
 			fmt.Println("not implemented")
@@ -57,15 +69,35 @@ func handleConn(conn net.Conn) {
 	}
 }
 
-func setValue(conn net.Conn, store map[string]any, data []string) {
+func setValue(conn net.Conn, data []string) {
 	key, value := data[0], data[1]
-	store[key] = value
+
+	if len(data) == 4 && data[2] == "px" { // set with expiry
+		fmt.Println("with expiry")
+		mili, err := strconv.Atoi(data[3])
+		must(err)
+		cur := time.Now()
+		fmt.Println("current time", cur)
+    t := cur.Add(time.Duration(mili) * time.Millisecond)
+		fmt.Println("expiry time", t)
+		database.Data[key] = &Item{Value: value, Expiry: &t}
+	} else {
+		database.Data[key] = &Item{Value: value, Expiry: nil}
+  }
 	conn.Write(response("OK"))
 }
 
-func getValue(conn net.Conn, store map[string]any, data []string) {
-  res := fmt.Sprintf("%v", store[data[0]])
-  conn.Write(response(res))
+func getValue(conn net.Conn, data []string) {
+	cur := time.Now()
+	res := "$-1\r\n"
+	if item, ok := database.Data[data[0]]; ok {
+		fmt.Printf("got item %v\n", item)
+		fmt.Println("checking current time vs expiry time", cur, item)
+		if item.Expiry == nil || cur.Before(*item.Expiry) {
+			res = fmt.Sprintf("+%v\r\n", item.Value)
+		}
+	}
+	conn.Write([]byte(res))
 }
 
 func sendEcho(conn net.Conn, data []string) {
