@@ -39,7 +39,6 @@ func handleConn(conn net.Conn) {
 
 func sendPong(conn net.Conn) {
 	resp := []byte("+PONG\r\n")
-	fmt.Println("Going to PONG")
   _, err := conn.Write(resp)
 	must(err)
 }
