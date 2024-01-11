@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 )
 
@@ -24,12 +25,23 @@ func main() {
 func handleConn(conn net.Conn) {
 	defer conn.Close()
 	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
+	for {
+		n, err := conn.Read(buf)
+		if err != nil && err == io.EOF {
+			fmt.Println("Client is done")
+			break
+		}
+		fmt.Println("Received: ", buf[:n])
+		fmt.Println("Received: ", string(buf[:n]))
+    sendPong(conn)
+	}
+}
+
+func sendPong(conn net.Conn) {
+	resp := []byte("+PONG\r\n")
+	fmt.Println("Going to PONG")
+  _, err := conn.Write(resp)
 	must(err)
-	fmt.Println("Received: ", buf[:n])
-	fmt.Println("Received: ", string(buf[:n]))
-  resp := []byte("+PONG\r\n")
-  conn.Write(resp)
 }
 
 func must(err error) {
