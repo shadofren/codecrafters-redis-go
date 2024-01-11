@@ -26,32 +26,50 @@ func main() {
 func handleConn(conn net.Conn) {
 	defer conn.Close()
 	buf := make([]byte, 1024)
+	data := make(map[string]any)
 	for {
 		n, err := conn.Read(buf)
 		if err != nil && err == io.EOF {
 			fmt.Println("Client is done")
 			break
 		}
-    command := strings.Split(string(buf[:n]), "\r\n")
+		command := strings.Split(string(buf[:n]), "\r\n")
 		fmt.Println("Received: ", command)
 		args := make([]string, 0)
 		for i := 2; i < len(command); i += 2 {
 			args = append(args, command[i])
 		}
-    fmt.Println("args", args)
-    fmt.Println("args[0]", args[0])
-    if args[0] == "ping" {
-      sendPong(conn)
-    } else if args[0] == "echo" {
-      sendEcho(conn, args[1:])
-    }
+		fmt.Println("args", args)
+		fmt.Println("args[0]", args[0])
+		switch args[0] {
+		case "ping":
+			sendPong(conn)
+		case "echo":
+			sendEcho(conn, args[1:])
+		case "set":
+			setValue(conn, data, args[1:])
+		case "get":
+			getValue(conn, data, args[1:])
+
+		default:
+			fmt.Println("not implemented")
+		}
 	}
 }
 
+func setValue(conn net.Conn, store map[string]any, data []string) {
+	key, value := data[0], data[1]
+	store[key] = value
+	conn.Write(response("OK"))
+}
+
+func getValue(conn net.Conn, store map[string]any, data []string) {
+  res := fmt.Sprintf("%v", store[data[0]])
+  conn.Write(response(res))
+}
+
 func sendEcho(conn net.Conn, data []string) {
-	resp := []byte("+" + strings.Join(data, ""))
-  fmt.Println("sending", string(resp))
-	_, err := conn.Write(resp)
+	_, err := conn.Write(response(strings.Join(data, "")))
 	must(err)
 }
 
@@ -59,6 +77,10 @@ func sendPong(conn net.Conn) {
 	resp := []byte("+PONG\r\n")
 	_, err := conn.Write(resp)
 	must(err)
+}
+
+func response(resp string) []byte {
+	return []byte(fmt.Sprintf("+%s\r\n", resp))
 }
 
 func must(err error) {
