@@ -51,8 +51,6 @@ func handleConn(conn net.Conn) {
 		for i := 2; i < len(command); i += 2 {
 			args = append(args, command[i])
 		}
-		fmt.Println("args", args)
-		fmt.Println("args[0]", args[0])
 		switch args[0] {
 		case "ping":
 			sendPong(conn)
@@ -62,7 +60,6 @@ func handleConn(conn net.Conn) {
 			setValue(conn, args[1:])
 		case "get":
 			getValue(conn, args[1:])
-
 		default:
 			fmt.Println("not implemented")
 		}
@@ -71,48 +68,47 @@ func handleConn(conn net.Conn) {
 
 func setValue(conn net.Conn, data []string) {
 	key, value := data[0], data[1]
-
 	if len(data) == 4 && data[2] == "px" { // set with expiry
-		fmt.Println("with expiry")
 		mili, err := strconv.Atoi(data[3])
 		must(err)
 		cur := time.Now()
-		fmt.Println("current time", cur)
-    t := cur.Add(time.Duration(mili) * time.Millisecond)
-		fmt.Println("expiry time", t)
+		t := cur.Add(time.Duration(mili) * time.Millisecond)
 		database.Data[key] = &Item{Value: value, Expiry: &t}
 	} else {
 		database.Data[key] = &Item{Value: value, Expiry: nil}
-  }
-	conn.Write(response("OK"))
+	}
+  sendOk(conn)
 }
 
 func getValue(conn net.Conn, data []string) {
 	cur := time.Now()
-	res := "$-1\r\n"
+	resp := RESP{Type: Bulk, Count: -1}
 	if item, ok := database.Data[data[0]]; ok {
-		fmt.Printf("got item %v\n", item)
-		fmt.Println("checking current time vs expiry time", cur, item)
 		if item.Expiry == nil || cur.Before(*item.Expiry) {
-			res = fmt.Sprintf("+%v\r\n", item.Value)
+      if value, ok := item.Value.(string); ok {
+        resp = RESP{Type: String, Raw: []byte(value)}
+      }
 		}
 	}
-	conn.Write([]byte(res))
+	conn.Write(resp.Pack())
 }
 
 func sendEcho(conn net.Conn, data []string) {
-	_, err := conn.Write(response(strings.Join(data, "")))
+  resp := RESP{Type: String, Raw: []byte(strings.Join(data, ""))}
+	_, err := conn.Write(resp.Pack())
 	must(err)
 }
 
 func sendPong(conn net.Conn) {
-	resp := []byte("+PONG\r\n")
-	_, err := conn.Write(resp)
+  resp := RESP{Type: String, Raw: []byte("PONG")}
+	_, err := conn.Write(resp.Pack())
 	must(err)
 }
 
-func response(resp string) []byte {
-	return []byte(fmt.Sprintf("+%s\r\n", resp))
+func sendOk(conn net.Conn) {
+  resp := RESP{Type: String, Raw: []byte("OK")}
+	_, err := conn.Write(resp.Pack())
+	must(err)
 }
 
 func must(err error) {
