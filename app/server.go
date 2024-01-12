@@ -51,7 +51,6 @@ func handleConn(conn net.Conn) {
 	for {
 		n, err := conn.Read(buf)
 		if err != nil && err == io.EOF {
-			fmt.Println("Client is done")
 			break
 		}
 		command := strings.Split(string(buf[:n]), "\r\n")
@@ -85,7 +84,7 @@ func getKeys(conn net.Conn, data []string) {
   allKeys := &RESP{Type: Array, Data: make([]*RESP, 0)}
   if key == "*" {
     fmt.Println()
-    for k, _ := range rdb.DB[0].Map {
+    for k := range rdb.DB[0].Map {
       resp := &RESP{Type: Bulk, Count: len(k), Raw: []byte(k)}
       allKeys.Data = append(allKeys.Data, resp)
       allKeys.Count++

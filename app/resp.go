@@ -37,8 +37,10 @@ func (r *RESP) Pack() []byte {
 	case Bulk:
 		data = append(data, intToByte(r.Count)...)
 		data = append(data, '\r', '\n')
-		data = append(data, r.Raw...)
-		data = append(data, '\r', '\n')
+		if r.Count != -1 {
+			data = append(data, r.Raw...)
+			data = append(data, '\r', '\n')
+		}
 	case String:
 		data = append(data, r.Raw...)
 		data = append(data, '\r', '\n')

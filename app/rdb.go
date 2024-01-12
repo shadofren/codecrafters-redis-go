@@ -16,8 +16,8 @@ type Item struct {
 
 type Database struct {
 	ID             uint8
-	HashSize       int
-	ExpireHashSize int
+	HashSize       uint64
+	ExpireHashSize uint64
 	Map            map[string]*Item // use a single map for now
 }
 
@@ -68,8 +68,8 @@ func parseRDB(file *os.File) (*RDB, error) {
 	must(err)
 	_, err = reader.Read(rdb.Version[:])
 	must(err)
-	fmt.Println("redis ", string(rdb.Magic[:]))
-	fmt.Println("redis version", string(rdb.Version[:]))
+	fmt.Println(string(rdb.Magic[:]))
+	fmt.Println(string(rdb.Version[:]))
 loop:
 	for {
 		opcode, err := reader.ReadByte()
@@ -80,7 +80,6 @@ loop:
 
 		switch opcode {
 		case AUX:
-			fmt.Println("encounter AUX")
 			key := parseString(reader)
 			value := parseString(reader)
 			fmt.Printf("AUX - %s:%s\n", key, value)
@@ -88,16 +87,24 @@ loop:
 		case SELECTDB:
 			dbIdx, err = reader.ReadByte()
 			must(err)
-			fmt.Println("select DB", dbIdx)
 		case RESIZEDB:
-			fmt.Println("reading RESIZEDB")
 			rdb.DB[dbIdx].HashSize = parseInt(reader)
 			rdb.DB[dbIdx].ExpireHashSize = parseInt(reader)
-			fmt.Println(rdb.DB[dbIdx])
 		case EXPIRETIME:
-			fmt.Println("not implemented EXPIRETIME")
+      var timeInSeconds uint32
+      binary.Read(reader, binary.LittleEndian, &timeInSeconds)
+      expireTime := time.Unix(int64(timeInSeconds), 0)
+			key, value, err := extractKey(reader)
+			must(err)
+			rdb.DB[dbIdx].Map[key] = &Item{Value: value, Expiry: &expireTime}
+      break loop
 		case EXPIRETIMEMS:
-			fmt.Println("not implemented EXPIRETIMEMS")
+      var timeInMs uint64
+      binary.Read(reader, binary.LittleEndian, &timeInMs)
+      expireTime := time.UnixMilli(int64(timeInMs))
+			key, value, err := extractKey(reader)
+			must(err)
+			rdb.DB[dbIdx].Map[key] = &Item{Value: value, Expiry: &expireTime}
 		case EOF: // no more data
 			fmt.Println("reach end of file")
 			break loop
@@ -107,7 +114,6 @@ loop:
 			reader.UnreadByte()
 			key, value, err := extractKey(reader)
 			must(err)
-			fmt.Printf("extracted key:%s value:%v\n", key, value)
 			rdb.DB[dbIdx].Map[key] = &Item{Value: value}
 		}
 	}
@@ -121,9 +127,10 @@ func extractKey(reader *bufio.Reader) (string, any, error) {
 	switch valueType {
 	case StringEncoding:
 		value := parseString(reader)
+    fmt.Printf("found data %s:%v\n", key, value)
 		return key, value, nil
 	default:
-		fmt.Printf("type unsupported", valueType)
+		fmt.Printf("type unsupported %x", valueType)
 		return "", nil, fmt.Errorf("unsupported")
 	}
 }
@@ -141,7 +148,6 @@ func parseString(reader *bufio.Reader) string {
 	/*     Numbers up to 2^32 -1 can be stored in 4 bytes */
 
 	firstByte, err := reader.ReadByte()
-	fmt.Printf("first byte is %x\n", firstByte)
 	must(err)
 	switch firstByte >> 6 {
 	case 0:
@@ -152,9 +158,9 @@ func parseString(reader *bufio.Reader) string {
 		must(err)
 		return string(value)
 	case 1:
-		fmt.Println("got 01")
+		fmt.Println("01 not implemented")
 	case 2:
-		fmt.Println("got 10")
+		fmt.Println("10 not implemented")
 	case 3:
 		// the next 6 bit indicate the format
 		firstByte &= byte(0x3f)
@@ -175,13 +181,11 @@ func parseString(reader *bufio.Reader) string {
 		} else {
 			fmt.Println("is something else")
 		}
-	default:
-		fmt.Println("some thing is wrong", firstByte>>6)
 	}
 	return ""
 }
 
-func parseInt(reader *bufio.Reader) int {
+func parseInt(reader *bufio.Reader) uint64 {
 	/* If the first 2 bits are 00, the next 6 bits represent the integer directly (6 bits integer). */
 	/* If the first 2 bits are 01, the next byte is the integer (14 bits integer). */
 	/* If the first 2 bits are 10, the next 4 bytes represent the integer (32 bits integer). */
@@ -190,16 +194,20 @@ func parseInt(reader *bufio.Reader) int {
 	must(err)
 	switch firstByte >> 6 {
 	case 0:
-		return int(firstByte)
+		return uint64(firstByte & 0x3F)
 	case 1:
 		secondByte, err := reader.ReadByte()
 		must(err)
-		value := int(firstByte&byte(0x3f)) << 8
-		value += int(secondByte)
-		return value
+		return uint64(firstByte&0x3F)<<8 | uint64(secondByte)
 	case 2:
+		var value uint32
+		binary.Read(reader, binary.BigEndian, &value)
+		return uint64(value)
 	case 3:
+		var value uint64
+		binary.Read(reader, binary.BigEndian, &value)
+		return value
 	default:
 	}
-	return -1
+	return 0
 }
