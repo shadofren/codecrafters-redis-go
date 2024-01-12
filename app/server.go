@@ -5,21 +5,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
-type Item struct {
-	Value  any
-	Expiry *time.Time
-}
-
-type RDB struct {
-	Data map[string]*Item
-}
-
-var database *RDB = &RDB{make(map[string]*Item)}
+var rdb *RDB
 var dir string
 var dbfilename string
 
@@ -27,6 +20,15 @@ func main() {
 	flag.StringVar(&dir, "dir", "", "Location of the rdb config")
 	flag.StringVar(&dbfilename, "dbfilename", "", "Location of the rdb config")
 	flag.Parse()
+
+  filename := filepath.Join(dir, dbfilename)
+	file, err := os.Open(filename)
+	if err != nil {
+    fmt.Println("file doesn't exist", filename) 
+	}
+	defer file.Close()
+  rdb, err = parseRDB(file)
+  must(err)
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	must(err)
@@ -69,10 +71,29 @@ func handleConn(conn net.Conn) {
 			getValue(conn, args[1:])
 		case "config":
 			config(conn, args[1:])
+    case "keys":
+      getKeys(conn, args[1:])
 		default:
 			fmt.Println("not implemented")
 		}
 	}
+}
+
+func getKeys(conn net.Conn, data []string) {
+  fmt.Println("data is", data)
+  key := data[0]
+  allKeys := &RESP{Type: Array, Data: make([]*RESP, 0)}
+  if key == "*" {
+    fmt.Println()
+    for k, _ := range rdb.DB[0].Map {
+      resp := &RESP{Type: Bulk, Count: len(k), Raw: []byte(k)}
+      allKeys.Data = append(allKeys.Data, resp)
+      allKeys.Count++
+    }
+    conn.Write(allKeys.Pack())
+  } else {
+    fmt.Println("not supported keys", data)
+  }
 }
 
 func config(conn net.Conn, data []string) {
@@ -97,9 +118,9 @@ func setValue(conn net.Conn, data []string) {
 		must(err)
 		cur := time.Now()
 		t := cur.Add(time.Duration(mili) * time.Millisecond)
-		database.Data[key] = &Item{Value: value, Expiry: &t}
+		rdb.DB[0].Map[key] = &Item{Value: value, Expiry: &t}
 	} else {
-		database.Data[key] = &Item{Value: value, Expiry: nil}
+		rdb.DB[0].Map[key] = &Item{Value: value, Expiry: nil}
 	}
 	sendOk(conn)
 }
@@ -107,7 +128,8 @@ func setValue(conn net.Conn, data []string) {
 func getValue(conn net.Conn, data []string) {
 	cur := time.Now()
 	resp := RESP{Type: Bulk, Count: -1}
-	if item, ok := database.Data[data[0]]; ok {
+  key := data[0]
+	if item, ok := rdb.DB[0].Map[key]; ok {
 		if item.Expiry == nil || cur.Before(*item.Expiry) {
 			if value, ok := item.Value.(string); ok {
 				resp = RESP{Type: String, Raw: []byte(value)}
