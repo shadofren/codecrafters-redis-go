@@ -25,7 +25,7 @@ type RDB struct {
 	Magic   [5]byte
 	Version [4]byte
 	Aux     map[string]string
-	DB    []Database
+	DB      []Database
 }
 
 func NewRDB() *RDB {
@@ -98,15 +98,17 @@ loop:
 			fmt.Println("not implemented EXPIRETIME")
 		case EXPIRETIMEMS:
 			fmt.Println("not implemented EXPIRETIMEMS")
+		case EOF: // no more data
+			fmt.Println("reach end of file")
+			break loop
 		default:
 			// key extraction
 			fmt.Printf("encounter code %x\n", opcode)
 			reader.UnreadByte()
 			key, value, err := extractKey(reader)
-      must(err)
-      fmt.Printf("extracted key:%s value:%v\n", key, value)
-      rdb.DB[dbIdx].Map[key] = &Item{Value: value}
-			break loop // done for now
+			must(err)
+			fmt.Printf("extracted key:%s value:%v\n", key, value)
+			rdb.DB[dbIdx].Map[key] = &Item{Value: value}
 		}
 	}
 	return rdb, nil
@@ -119,7 +121,7 @@ func extractKey(reader *bufio.Reader) (string, any, error) {
 	switch valueType {
 	case StringEncoding:
 		value := parseString(reader)
-    return key, value, nil
+		return key, value, nil
 	default:
 		fmt.Printf("type unsupported", valueType)
 		return "", nil, fmt.Errorf("unsupported")
