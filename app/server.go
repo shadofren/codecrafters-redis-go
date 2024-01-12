@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -19,8 +20,14 @@ type RDB struct {
 }
 
 var database *RDB = &RDB{make(map[string]*Item)}
+var dir string
+var dbfilename string
 
 func main() {
+	flag.StringVar(&dir, "dir", "", "Location of the rdb config")
+	flag.StringVar(&dbfilename, "dbfilename", "", "Location of the rdb config")
+	flag.Parse()
+
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	must(err)
 	defer l.Close()
@@ -60,10 +67,27 @@ func handleConn(conn net.Conn) {
 			setValue(conn, args[1:])
 		case "get":
 			getValue(conn, args[1:])
+		case "config":
+			config(conn, args[1:])
 		default:
 			fmt.Println("not implemented")
 		}
 	}
+}
+
+func config(conn net.Conn, data []string) {
+	// data[0] == get
+	key := data[1]
+	resp := RESP{Type: Array, Count: 2, Data: make([]*RESP, 0)}
+	resp.Data = append(resp.Data, &RESP{Type: Bulk, Count: len(key), Raw: []byte(key)})
+	switch key {
+	case "dir":
+		resp.Data = append(resp.Data, &RESP{Type: Bulk, Count: len(dir), Raw: []byte(dir)})
+	case "dbfilename":
+		resp.Data = append(resp.Data, &RESP{Type: Bulk, Count: len(dbfilename), Raw: []byte(dbfilename)})
+	default:
+	}
+	conn.Write(resp.Pack())
 }
 
 func setValue(conn net.Conn, data []string) {
@@ -77,7 +101,7 @@ func setValue(conn net.Conn, data []string) {
 	} else {
 		database.Data[key] = &Item{Value: value, Expiry: nil}
 	}
-  sendOk(conn)
+	sendOk(conn)
 }
 
 func getValue(conn net.Conn, data []string) {
@@ -85,28 +109,28 @@ func getValue(conn net.Conn, data []string) {
 	resp := RESP{Type: Bulk, Count: -1}
 	if item, ok := database.Data[data[0]]; ok {
 		if item.Expiry == nil || cur.Before(*item.Expiry) {
-      if value, ok := item.Value.(string); ok {
-        resp = RESP{Type: String, Raw: []byte(value)}
-      }
+			if value, ok := item.Value.(string); ok {
+				resp = RESP{Type: String, Raw: []byte(value)}
+			}
 		}
 	}
 	conn.Write(resp.Pack())
 }
 
 func sendEcho(conn net.Conn, data []string) {
-  resp := RESP{Type: String, Raw: []byte(strings.Join(data, ""))}
+	resp := RESP{Type: String, Raw: []byte(strings.Join(data, ""))}
 	_, err := conn.Write(resp.Pack())
 	must(err)
 }
 
 func sendPong(conn net.Conn) {
-  resp := RESP{Type: String, Raw: []byte("PONG")}
+	resp := RESP{Type: String, Raw: []byte("PONG")}
 	_, err := conn.Write(resp.Pack())
 	must(err)
 }
 
 func sendOk(conn net.Conn) {
-  resp := RESP{Type: String, Raw: []byte("OK")}
+	resp := RESP{Type: String, Raw: []byte("OK")}
 	_, err := conn.Write(resp.Pack())
 	must(err)
 }
